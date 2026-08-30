@@ -44,17 +44,26 @@ app.use('/api', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Response time header & development logger
+// Development logger
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    res.setHeader('X-Response-Time', `${duration}ms`);
     if (config.nodeEnv === 'development') {
       console.log(`[${req.method}] ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
     }
   });
   next();
+});
+
+// Auto-connect to DB on incoming requests (vital for Vercel serverless cold starts)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 // API Routes
@@ -79,7 +88,7 @@ app.use((req, res) => {
 // Global Error Handling Middleware
 app.use(errorHandler);
 
-// Server Lifecycle Startup
+// Server Lifecycle Startup (Only run standalone HTTP server when not in serverless/Vercel)
 let server: any;
 
 async function startServer() {
@@ -97,11 +106,12 @@ async function startServer() {
     });
   } catch (err) {
     console.error('❌ Failed to bootstrap application:', err);
-    process.exit(1);
   }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
 
 // Graceful Shutdown on termination signals
 async function gracefulShutdown(signal: string) {
@@ -128,5 +138,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (err) => {
   console.error('🔥 Uncaught Exception thrown:', err);
-  gracefulShutdown('uncaughtException');
 });
+
+export default app;
+export { app };

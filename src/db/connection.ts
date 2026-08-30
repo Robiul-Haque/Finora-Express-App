@@ -9,49 +9,57 @@ try {
   // ignore if not permitted
 }
 
-let isConnected = false;
+let isInitialized = false;
 
 export async function connectDB(): Promise<typeof mongoose> {
-  if (isConnected) {
+  // If already connected, reuse existing mongoose connection (vital for Serverless/Vercel)
+  if (mongoose.connection.readyState === 1) {
     return mongoose;
+  }
+
+  // If currently connecting, wait for it
+  if (mongoose.connection.readyState === 2) {
+    return new Promise((resolve, reject) => {
+      mongoose.connection.once('connected', () => resolve(mongoose));
+      mongoose.connection.once('error', (err) => reject(err));
+    });
   }
 
   try {
     const conn = await mongoose.connect(config.mongoUri, {
-      maxPoolSize: 50, // Maintain up to 50 concurrent socket connections
-      minPoolSize: 10, // Keep at least 10 sockets open for instant responses
-      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of hanging
-      socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
-      autoIndex: config.nodeEnv !== 'production', // Build indexes in dev, manual/cached in prod
+      maxPoolSize: 20, // Concurrency pool
+      minPoolSize: 1,  // Keep socket open
+      serverSelectionTimeoutMS: 8000, // Timeout after 8s
+      socketTimeoutMS: 45000,
+      autoIndex: config.nodeEnv !== 'production',
     });
 
-    isConnected = true;
-    console.log(`🍃 MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
+    if (!isInitialized) {
+      isInitialized = true;
+      console.log(`🍃 MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
 
-    mongoose.connection.on('error', (err) => {
-      console.error('🍃 MongoDB Connection Error:', err);
-    });
+      mongoose.connection.on('error', (err) => {
+        console.error('🍃 MongoDB Connection Error:', err);
+      });
 
-    mongoose.connection.on('disconnected', () => {
-      console.warn('🍃 MongoDB Disconnected. Attempting reconnection...');
-      isConnected = false;
-    });
+      mongoose.connection.on('disconnected', () => {
+        console.warn('🍃 MongoDB Disconnected.');
+      });
 
-    mongoose.connection.on('reconnected', () => {
-      console.log('🍃 MongoDB Reconnected successfully.');
-      isConnected = true;
-    });
+      mongoose.connection.on('reconnected', () => {
+        console.log('🍃 MongoDB Reconnected successfully.');
+      });
+    }
 
     return conn;
   } catch (error) {
     console.error('❌ Failed to connect to MongoDB:', error);
-    process.exit(1);
+    throw error;
   }
 }
 
 export async function disconnectDB(): Promise<void> {
-  if (!isConnected) return;
+  if (mongoose.connection.readyState === 0) return;
   await mongoose.disconnect();
-  isConnected = false;
   console.log('🍃 MongoDB connection closed.');
 }
