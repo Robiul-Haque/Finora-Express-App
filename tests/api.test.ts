@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { app } from '../src/app.js';
-import { connectDB } from '../src/config/db.js';
+import { connectDB } from '../src/config/database.js';
 
 interface TestResult {
   name: string;

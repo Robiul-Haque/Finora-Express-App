@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/index.js';
-import { connectDB } from './config/db.js';
+import { connectDB } from './config/database.js';
 import { apiRouter } from './routes/api.js';
 import { notFoundHandler } from './middleware/notFoundHandler.js';
 import { errorHandler } from './middleware/errorHandler.js';

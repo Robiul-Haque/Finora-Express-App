@@ -1,6 +1,6 @@
 import { app } from './app.js';
 import { config } from './config/index.js';
-import { connectDB, disconnectDB } from './config/db.js';
+import { connectDB, disconnectDB } from './config/database.js';
 import { seedDatabase } from './seeder/seeder.js';
 
 let server: any;

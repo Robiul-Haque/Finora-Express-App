@@ -35,7 +35,7 @@ export const connectDB = async (): Promise<typeof mongoose> => {
 
     if (!isInitialized) {
       isInitialized = true;
-      console.log(`\x1b[32m🍃 MongoDB Connected Successfully:\x1b[0m \x1b[1;32m${conn.connection.host}/${conn.connection.name}\x1b[0m`);
+      console.log('\x1b[32m🍃 MongoDB Connected Successfully.\x1b[0m');
 
       mongoose.connection.on('error', (err) => {
         console.error('\x1b[31m🍃 MongoDB Connection Error:\x1b[0m', err);
