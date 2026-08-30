@@ -128,7 +128,7 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
         todayProfit: profitDelta,
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   // 3. Create transaction record

@@ -71,7 +71,7 @@ export const updateAccount = catchAsync(async (req: Request, res: Response) => {
   const updated = await AccountModel.findByIdAndUpdate(
     id,
     { $set: updateData },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   ).lean();
 
   if (!updated) {
