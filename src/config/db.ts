@@ -35,18 +35,18 @@ export const connectDB = async (): Promise<typeof mongoose> => {
 
     if (!isInitialized) {
       isInitialized = true;
-      console.log(`🍃 MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
+      console.log(`\x1b[32m🍃 MongoDB Connected Successfully:\x1b[0m \x1b[1;32m${conn.connection.host}/${conn.connection.name}\x1b[0m`);
 
       mongoose.connection.on('error', (err) => {
-        console.error('🍃 MongoDB Connection Error:', err);
+        console.error('\x1b[31m🍃 MongoDB Connection Error:\x1b[0m', err);
       });
 
       mongoose.connection.on('disconnected', () => {
-        console.warn('🍃 MongoDB Disconnected.');
+        console.warn('\x1b[33m🍃 MongoDB Disconnected.\x1b[0m');
       });
 
       mongoose.connection.on('reconnected', () => {
-        console.log('🍃 MongoDB Reconnected successfully.');
+        console.log('\x1b[32m🍃 MongoDB Reconnected Successfully.\x1b[0m');
       });
     }
 
