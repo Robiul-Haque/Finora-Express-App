@@ -50,7 +50,7 @@ export const getTransactionsQuerySchema = z.object({
   endDate: z.string().optional(),
   sortBy: z.enum(['newest', 'oldest', 'amount_high', 'amount_low', 'profit_high']).optional(),
   searchQuery: z.string().optional(),
-  limit: z.coerce.number().min(1).max(500).default(50),
+  limit: z.coerce.number().min(1).max(1000).default(500),
   offset: z.coerce.number().min(0).default(0),
 });
 

@@ -49,4 +49,5 @@ apiRouter.delete('/transactions/:id', deleteTransaction);
 // Metrics & Offline Sync
 apiRouter.get('/metrics', getMetrics);
 apiRouter.post('/sync/batch', processBatchSync);
+apiRouter.post('/transactions/sync', processBatchSync);
 apiRouter.post('/reset', resetDatabase);

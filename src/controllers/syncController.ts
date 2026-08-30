@@ -9,6 +9,8 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
   const validated = batchSyncSchema.parse(req.body);
   let successCount = 0;
   let failedCount = 0;
+  const syncedIds: string[] = [];
+  const failedIds: string[] = [];
   const errors: Array<{ id: string; error: string }> = [];
 
   for (const item of validated.items) {
@@ -23,12 +25,14 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
 
         if (existing) {
           successCount++;
+          syncedIds.push(item.id);
           continue;
         }
 
         const targetAccount = await AccountModel.findById(txData.accountId).lean();
         if (!targetAccount) {
           failedCount++;
+          failedIds.push(item.id);
           errors.push({ id: item.id, error: 'Target account not found' });
           continue;
         }
@@ -78,6 +82,7 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
         });
 
         successCount++;
+        syncedIds.push(item.id);
       } else if (item.type === 'DELETE_TRANSACTION') {
         const txId = item.payload?.id || item.id;
         const tx = await TransactionModel.findById(txId).lean();
@@ -109,14 +114,17 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
           await TransactionModel.findByIdAndDelete(txId);
         }
         successCount++;
+        syncedIds.push(item.id);
       } else if (item.type === 'UPDATE_ACCOUNT') {
         const accData = item.payload;
         const accId = accData.id || item.id;
         await AccountModel.findByIdAndUpdate(accId, { $set: accData });
         successCount++;
+        syncedIds.push(item.id);
       }
     } catch (itemErr: any) {
       failedCount++;
+      failedIds.push(item.id);
       errors.push({ id: item.id, error: itemErr.message || 'Sync operation failed' });
     }
   }
@@ -128,6 +136,8 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
       processed: validated.items.length,
       successCount,
       failedCount,
+      syncedIds,
+      failedIds,
       errors,
     },
   });
