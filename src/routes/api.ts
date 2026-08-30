@@ -17,7 +17,7 @@ import { processBatchSync } from '../controllers/syncController.js';
 
 export const apiRouter = Router();
 
-// Health Check with DB status
+// Health Check
 apiRouter.get('/health', (req, res) => {
   const dbStates = ['Disconnected', 'Connected', 'Connecting', 'Disconnecting'];
   const dbState = dbStates[mongoose.connection.readyState] || 'Unknown';
@@ -34,23 +34,19 @@ apiRouter.get('/health', (req, res) => {
   });
 });
 
-// Accounts Endpoints
+// Accounts Routes
 apiRouter.get('/accounts', getAccounts);
 apiRouter.get('/accounts/:id', getAccountById);
 apiRouter.post('/accounts', createAccount);
 apiRouter.patch('/accounts/:id', updateAccount);
 apiRouter.delete('/accounts/:id', deleteAccount);
 
-// Transactions Endpoints
+// Transactions Routes
 apiRouter.get('/transactions', getTransactions);
 apiRouter.post('/transactions', createTransaction);
 apiRouter.delete('/transactions/:id', deleteTransaction);
 
-// Metrics & Analytics
+// Metrics & Offline Sync
 apiRouter.get('/metrics', getMetrics);
-
-// Offline Queue Batch Sync
 apiRouter.post('/sync/batch', processBatchSync);
-
-// Reset Database (Demo Data)
 apiRouter.post('/reset', resetDatabase);

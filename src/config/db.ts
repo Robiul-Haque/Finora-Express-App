@@ -1,23 +1,22 @@
 import dns from 'node:dns';
 import mongoose from 'mongoose';
-import { config } from '../config.js';
+import { config } from './index.js';
 
-// Resolve SRV records reliably (prevents querySrv ECONNREFUSED on Windows/ISP DNS)
+// Resolve MongoDB Atlas SRV records reliably in ISP / Windows environments
 try {
   dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
-} catch (e) {
-  // ignore if not permitted
+} catch {
+  // Ignore if custom DNS server override is restricted
 }
 
 let isInitialized = false;
 
-export async function connectDB(): Promise<typeof mongoose> {
-  // If already connected, reuse existing mongoose connection (vital for Serverless/Vercel)
+export const connectDB = async (): Promise<typeof mongoose> => {
+  // Connection caching for Serverless environments (Vercel)
   if (mongoose.connection.readyState === 1) {
     return mongoose;
   }
 
-  // If currently connecting, wait for it
   if (mongoose.connection.readyState === 2) {
     return new Promise((resolve, reject) => {
       mongoose.connection.once('connected', () => resolve(mongoose));
@@ -27,9 +26,9 @@ export async function connectDB(): Promise<typeof mongoose> {
 
   try {
     const conn = await mongoose.connect(config.mongoUri, {
-      maxPoolSize: 20, // Concurrency pool
-      minPoolSize: 1,  // Keep socket open
-      serverSelectionTimeoutMS: 8000, // Timeout after 8s
+      maxPoolSize: 20,
+      minPoolSize: 1,
+      serverSelectionTimeoutMS: 8000,
       socketTimeoutMS: 45000,
       autoIndex: config.nodeEnv !== 'production',
     });
@@ -56,10 +55,10 @@ export async function connectDB(): Promise<typeof mongoose> {
     console.error('❌ Failed to connect to MongoDB:', error);
     throw error;
   }
-}
+};
 
-export async function disconnectDB(): Promise<void> {
+export const disconnectDB = async (): Promise<void> => {
   if (mongoose.connection.readyState === 0) return;
   await mongoose.disconnect();
   console.log('🍃 MongoDB connection closed.');
-}
+};

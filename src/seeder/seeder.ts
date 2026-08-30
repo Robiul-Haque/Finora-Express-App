@@ -1,12 +1,10 @@
 import { AccountModel } from '../models/Account.js';
 import { TransactionModel } from '../models/Transaction.js';
 
-export async function seedDatabase(): Promise<void> {
+export const seedDatabase = async (): Promise<void> => {
   try {
     const accountCount = await AccountModel.countDocuments();
-    if (accountCount > 0) {
-      return; // Already seeded
-    }
+    if (accountCount > 0) return;
 
     const now = new Date();
     const yesterday = new Date(Date.now() - 86400000);
@@ -153,11 +151,13 @@ export async function seedDatabase(): Promise<void> {
       },
     ];
 
-    await AccountModel.insertMany(initialAccounts);
-    await TransactionModel.insertMany(initialTransactions);
+    await Promise.all([
+      AccountModel.insertMany(initialAccounts),
+      TransactionModel.insertMany(initialTransactions),
+    ]);
 
     console.log('🍃 Database seeded successfully with initial bKash accounts & records in MongoDB.');
   } catch (error) {
     console.error('Error seeding MongoDB:', error);
   }
-}
+};

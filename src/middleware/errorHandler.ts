@@ -1,43 +1,66 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
+import { AppError } from '../utils/AppError.js';
 
-export function errorHandler(err: any, req: Request, res: Response, next: NextFunction) {
-  // Detailed logging in console for developer debugging
-  console.error(`❌ [Finora API Error] ${req.method} ${req.originalUrl}:`, err);
-
+export const errorHandler = (
+  err: any,
+  req: Request,
+  res: Response,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  next: NextFunction
+): void => {
   // 1. Zod Validation Error
   if (err instanceof ZodError) {
-    return res.status(400).json({
+    res.status(400).json({
+      success: false,
       error: 'Validation Error',
       details: err.errors.map((e) => ({
         field: e.path.join('.'),
         message: e.message,
       })),
     });
+    return;
   }
 
-  // 2. Mongoose Duplicate Key Error (E11000)
+  // 2. Custom AppError
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json({
+      success: false,
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // 3. Mongoose Duplicate Key Error (E11000)
   if (err.code === 11000) {
     const field = Object.keys(err.keyValue || {})[0] || 'field';
     const value = err.keyValue ? err.keyValue[field] : '';
-    return res.status(409).json({
+    res.status(409).json({
+      success: false,
       error: `Duplicate value error: ${field} '${value}' already exists.`,
     });
+    return;
   }
 
-  // 3. Mongoose Cast Error (Invalid ID format)
+  // 4. Mongoose Cast Error (Invalid ID format)
   if (err.name === 'CastError') {
-    return res.status(400).json({
+    res.status(400).json({
+      success: false,
       error: `Invalid resource ID format: ${err.value}`,
     });
+    return;
   }
 
-  // 4. Fallback Generic Internal Server Error
-  const statusCode = err.statusCode || (err.status && typeof err.status === 'number' ? err.status : 500);
+  // 5. Fallback Internal Server Error
+  const statusCode = Number(err.statusCode || err.status) || 500;
   const message = err.message || 'Internal Server Error';
 
+  console.error(`❌ [API Error] ${req.method} ${req.originalUrl}:`, err);
+
   res.status(statusCode).json({
+    success: false,
     error: message,
     timestamp: new Date().toISOString(),
   });
-}
+};
