@@ -115,6 +115,12 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
         }
         successCount++;
         syncedIds.push(item.id);
+      } else if (item.type === 'DELETE_ACCOUNT') {
+        const accId = item.payload?.id || item.id;
+        await AccountModel.findByIdAndDelete(accId);
+        await TransactionModel.deleteMany({ accountId: accId });
+        successCount++;
+        syncedIds.push(item.id);
       } else if (item.type === 'UPDATE_ACCOUNT') {
         const accData = item.payload;
         const accId = accData.id || item.id;

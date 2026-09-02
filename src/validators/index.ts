@@ -59,7 +59,7 @@ export const batchSyncSchema = z.object({
     z.object({
       id: z.string(),
       clientTxId: z.string().optional(),
-      type: z.enum(['CREATE_TRANSACTION', 'DELETE_TRANSACTION', 'UPDATE_ACCOUNT']),
+      type: z.enum(['CREATE_TRANSACTION', 'UPDATE_TRANSACTION', 'DELETE_TRANSACTION', 'CREATE_ACCOUNT', 'UPDATE_ACCOUNT', 'DELETE_ACCOUNT']),
       payload: z.any(),
       createdAt: z.string().optional(),
     })

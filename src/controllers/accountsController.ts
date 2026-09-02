@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { AccountModel } from '../models/Account.js';
+import { TransactionModel } from '../models/Transaction.js';
 import { createAccountSchema, updateAccountSchema } from '../validators/index.js';
 import { Account } from '../types/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
@@ -91,6 +92,9 @@ export const deleteAccount = catchAsync(async (req: Request, res: Response) => {
   if (!deleted) {
     throw new AppError('Account not found', 404);
   }
+
+  // Cascade delete: delete all associated transactions
+  await TransactionModel.deleteMany({ accountId: id });
 
   sendResponse(res, { statusCode: 200, data: { success: true, deletedId: id } });
 });
