@@ -9,6 +9,9 @@ export interface ITransaction {
   accountName: string;
   type: TransactionType;
   amount: number;
+  margin?: number;
+  runningBalance?: number;
+  counterparty?: string;
   recipientNumber?: string;
   senderNumber?: string;
   cost: number;
@@ -19,6 +22,7 @@ export interface ITransaction {
   retryCount?: number;
   lastError?: string;
   createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const transactionSchema = new Schema<ITransaction>(
@@ -51,7 +55,18 @@ const transactionSchema = new Schema<ITransaction>(
     },
     type: {
       type: String,
-      enum: ['cash_out', 'cash_in', 'send_money', 'receive_money', 'b2b', 'adjustment'],
+      enum: [
+        'cash_out',
+        'cash_in',
+        'send_money',
+        'receive_money',
+        'b2b',
+        'adjustment',
+        'recev',
+        'sm',
+        'co',
+        'send',
+      ],
       required: true,
       index: true,
     },
@@ -59,6 +74,19 @@ const transactionSchema = new Schema<ITransaction>(
       type: Number,
       required: true,
       min: 0.01,
+    },
+    margin: {
+      type: Number,
+      default: 0,
+    },
+    runningBalance: {
+      type: Number,
+      default: undefined,
+    },
+    counterparty: {
+      type: String,
+      trim: true,
+      default: undefined,
     },
     recipientNumber: {
       type: String,
@@ -80,7 +108,6 @@ const transactionSchema = new Schema<ITransaction>(
       type: Number,
       required: true,
       default: 0,
-      min: 0,
     },
     date: {
       type: Date,
@@ -108,51 +135,13 @@ const transactionSchema = new Schema<ITransaction>(
     },
   },
   {
-    timestamps: { createdAt: true, updatedAt: false },
+    timestamps: true,
     versionKey: false,
-    toJSON: {
-      transform: (_, ret: any) => {
-        ret.id = ret._id;
-        delete ret._id;
-        if (ret.date instanceof Date) {
-          ret.date = ret.date.toISOString();
-        }
-        if (ret.createdAt instanceof Date) {
-          ret.createdAt = ret.createdAt.toISOString();
-        }
-        return ret;
-      },
-    },
-    toObject: {
-      transform: (_, ret: any) => {
-        ret.id = ret._id;
-        delete ret._id;
-        if (ret.date instanceof Date) {
-          ret.date = ret.date.toISOString();
-        }
-        if (ret.createdAt instanceof Date) {
-          ret.createdAt = ret.createdAt.toISOString();
-        }
-        return ret;
-      },
-    },
   }
 );
 
-// High Performance Compound Indexes for Scale (Sub-millisecond query execution)
 transactionSchema.index({ accountId: 1, date: -1 });
-transactionSchema.index({ date: -1 });
 transactionSchema.index({ type: 1, date: -1 });
-transactionSchema.index({ accountId: 1, type: 1, date: -1 });
-
-// Text / String search index for fast querying
-transactionSchema.index({
-  accountNumber: 'text',
-  accountName: 'text',
-  recipientNumber: 'text',
-  senderNumber: 'text',
-  note: 'text',
-});
 
 export const TransactionModel: Model<ITransaction> =
   mongoose.models.Transaction || mongoose.model<ITransaction>('Transaction', transactionSchema);

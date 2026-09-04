@@ -1,6 +1,16 @@
 export type AccountType = 'agent' | 'merchant' | 'personal' | 'corporate' | 'bkash';
 
-export type TransactionType = 'cash_out' | 'cash_in' | 'send_money' | 'receive_money' | 'b2b' | 'adjustment';
+export type TransactionType =
+  | 'cash_out'
+  | 'cash_in'
+  | 'send_money'
+  | 'receive_money'
+  | 'b2b'
+  | 'adjustment'
+  | 'recev'
+  | 'sm'
+  | 'co'
+  | 'send';
 
 export type SyncStatus = 'synced' | 'pending' | 'failed';
 
@@ -28,6 +38,9 @@ export interface Transaction {
   accountName: string;
   type: TransactionType;
   amount: number;
+  margin?: number;
+  runningBalance?: number;
+  counterparty?: string;
   recipientNumber?: string;
   senderNumber?: string;
   cost: number;

@@ -25,19 +25,52 @@ export const updateAccountSchema = z.object({
   color: z.string().optional().nullable(),
 });
 
+const allowedTxTypes = [
+  'cash_out',
+  'cash_in',
+  'send_money',
+  'receive_money',
+  'b2b',
+  'adjustment',
+  'recev',
+  'sm',
+  'co',
+  'send',
+] as const;
+
 export const createTransactionSchema = z.object({
   clientTxId: z.string().optional(),
   accountId: z.string().min(1, 'Account ID is required'),
   accountNumber: z.string().min(1, 'Account number is required'),
   accountName: z.string().min(1, 'Account name is required'),
-  type: z.enum(['cash_out', 'cash_in', 'send_money', 'receive_money', 'b2b', 'adjustment'], {
+  type: z.enum(allowedTxTypes, {
     errorMap: () => ({ message: 'Invalid transaction type' }),
   }),
   amount: z.number().positive('Amount is required and must be greater than 0'),
+  margin: z.number().optional(),
+  runningBalance: z.number().optional(),
+  counterparty: z.string().trim().optional().nullable(),
   recipientNumber: z.string().trim().optional().nullable(),
   senderNumber: z.string().trim().optional().nullable(),
   cost: z.number().min(0, 'Cost/fee cannot be negative').default(0),
   profit: z.number().min(0, 'Profit/commission cannot be negative').default(0),
+  date: z.string().optional(),
+  note: z.string().trim().optional().nullable(),
+});
+
+export const updateTransactionSchema = z.object({
+  accountId: z.string().optional(),
+  accountNumber: z.string().optional(),
+  accountName: z.string().optional(),
+  type: z.enum(allowedTxTypes).optional(),
+  amount: z.number().positive().optional(),
+  margin: z.number().optional(),
+  runningBalance: z.number().optional(),
+  counterparty: z.string().trim().optional().nullable(),
+  recipientNumber: z.string().trim().optional().nullable(),
+  senderNumber: z.string().trim().optional().nullable(),
+  cost: z.number().min(0).optional(),
+  profit: z.number().min(0).optional(),
   date: z.string().optional(),
   note: z.string().trim().optional().nullable(),
 });

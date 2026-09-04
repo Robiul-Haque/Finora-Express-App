@@ -10,6 +10,7 @@ import {
 import {
   getTransactions,
   createTransaction,
+  updateTransaction,
   deleteTransaction,
 } from '../controllers/transactionsController.js';
 import { getMetrics, resetDatabase } from '../controllers/metricsController.js';
@@ -44,6 +45,8 @@ apiRouter.delete('/accounts/:id', deleteAccount);
 // Transactions Routes
 apiRouter.get('/transactions', getTransactions);
 apiRouter.post('/transactions', createTransaction);
+apiRouter.put('/transactions/:id', updateTransaction);
+apiRouter.patch('/transactions/:id', updateTransaction);
 apiRouter.delete('/transactions/:id', deleteTransaction);
 
 // Metrics & Offline Sync

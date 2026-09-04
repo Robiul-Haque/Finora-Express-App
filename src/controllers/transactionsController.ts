@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { TransactionModel } from '../models/Transaction.js';
 import { AccountModel } from '../models/Account.js';
-import { createTransactionSchema, getTransactionsQuerySchema } from '../validators/index.js';
+import { createTransactionSchema, updateTransactionSchema, getTransactionsQuerySchema } from '../validators/index.js';
 import { Transaction } from '../types/index.js';
 import { getAccountsInternal } from './accountsController.js';
 import { catchAsync } from '../utils/catchAsync.js';
@@ -40,13 +40,14 @@ export const getTransactions = catchAsync(async (req: Request, res: Response) =>
   }
 
   if (searchQuery && searchQuery.trim()) {
-    const escaped = searchQuery.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = searchQuery.trim().replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'i');
     filter.$or = [
       { accountNumber: regex },
       { accountName: regex },
       { recipientNumber: regex },
       { senderNumber: regex },
+      { counterparty: regex },
       { note: regex },
     ];
   }
@@ -105,34 +106,32 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
   let balanceDelta = 0;
   let sendDelta = 0;
   let receiveDelta = 0;
-  const profitDelta = validated.profit || 0;
+  const profitDelta = validated.profit || validated.margin || 0;
 
-  if (validated.type === 'send_money' || validated.type === 'cash_out' || validated.type === 'b2b') {
+  const isOutflow =
+    validated.type === 'send_money' ||
+    validated.type === 'cash_out' ||
+    validated.type === 'b2b' ||
+    validated.type === 'sm' ||
+    validated.type === 'co' ||
+    validated.type === 'send';
+
+  const isInflow =
+    validated.type === 'receive_money' ||
+    validated.type === 'cash_in' ||
+    validated.type === 'recev';
+
+  if (isOutflow) {
     balanceDelta = -(validated.amount + validated.cost);
     sendDelta = validated.amount;
-  } else if (validated.type === 'receive_money' || validated.type === 'cash_in') {
+  } else if (isInflow) {
     balanceDelta = validated.amount;
     receiveDelta = validated.amount;
   } else if (validated.type === 'adjustment') {
     balanceDelta = validated.amount;
   }
 
-  // 2. Atomic balance & stats increment
-  await AccountModel.findByIdAndUpdate(
-    validated.accountId,
-    {
-      $inc: {
-        balance: balanceDelta,
-        todaySend: sendDelta,
-        todayReceive: receiveDelta,
-        todayProfit: profitDelta,
-      },
-    },
-    { returnDocument: 'after' }
-  );
-
-  // 3. Create transaction record
-  const newTxDoc = await TransactionModel.create({
+  const newDoc = await TransactionModel.create({
     _id: id,
     clientTxId,
     accountId: validated.accountId,
@@ -140,52 +139,19 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
     accountName: validated.accountName,
     type: validated.type,
     amount: validated.amount,
+    margin: profitDelta,
+    runningBalance: validated.runningBalance,
+    counterparty: (validated.counterparty || validated.recipientNumber || validated.senderNumber) || undefined,
     recipientNumber: validated.recipientNumber || undefined,
     senderNumber: validated.senderNumber || undefined,
     cost: validated.cost,
-    profit: validated.profit,
+    profit: profitDelta,
     date,
     note: validated.note || undefined,
     syncStatus: 'synced',
   });
 
-  const txObj = newTxDoc.toObject ? newTxDoc.toObject() : newTxDoc;
-  const createdTx = formatTransaction(txObj);
-  const updatedAccounts = await getAccountsInternal();
-
-  sendResponse(res, {
-    statusCode: 201,
-    data: {
-      transaction: createdTx,
-      updatedAccounts,
-    },
-  });
-});
-
-export const deleteTransaction = catchAsync(async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const txToDelete = await TransactionModel.findById(id).lean();
-
-  if (!txToDelete) {
-    throw new AppError('Transaction not found', 404);
-  }
-
-  let balanceDelta = 0;
-  let sendDelta = 0;
-  let receiveDelta = 0;
-  const profitDelta = -(txToDelete.profit || 0);
-
-  if (txToDelete.type === 'send_money' || txToDelete.type === 'cash_out' || txToDelete.type === 'b2b') {
-    balanceDelta = +(txToDelete.amount + txToDelete.cost);
-    sendDelta = -txToDelete.amount;
-  } else if (txToDelete.type === 'receive_money' || txToDelete.type === 'cash_in') {
-    balanceDelta = -txToDelete.amount;
-    receiveDelta = -txToDelete.amount;
-  } else if (txToDelete.type === 'adjustment') {
-    balanceDelta = -txToDelete.amount;
-  }
-
-  await AccountModel.findByIdAndUpdate(txToDelete.accountId, {
+  await AccountModel.findByIdAndUpdate(validated.accountId, {
     $inc: {
       balance: balanceDelta,
       todaySend: sendDelta,
@@ -194,8 +160,111 @@ export const deleteTransaction = catchAsync(async (req: Request, res: Response) 
     },
   });
 
-  await TransactionModel.findByIdAndDelete(id);
+  const accounts = await getAccountsInternal();
 
-  const updatedAccounts = await getAccountsInternal();
-  sendResponse(res, { statusCode: 200, data: { deletedId: id, updatedAccounts } });
+  sendResponse(res, {
+    statusCode: 201,
+    data: {
+      transaction: formatTransaction(newDoc),
+      updatedAccounts: accounts,
+    },
+  });
+});
+
+export const updateTransaction = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const validated = updateTransactionSchema.parse(req.body);
+
+  const existingTx = await TransactionModel.findOne({
+    $or: [{ _id: id }, { clientTxId: id }],
+  });
+
+  if (!existingTx) {
+    throw new AppError('Transaction not found', 404);
+  }
+
+  // Update transaction fields
+  if (validated.note !== undefined) existingTx.note = validated.note || undefined;
+  if (validated.counterparty !== undefined) existingTx.counterparty = validated.counterparty || undefined;
+  if (validated.recipientNumber !== undefined) existingTx.recipientNumber = validated.recipientNumber || undefined;
+  if (validated.senderNumber !== undefined) existingTx.senderNumber = validated.senderNumber || undefined;
+  if (validated.amount !== undefined) existingTx.amount = validated.amount;
+  if (validated.cost !== undefined) existingTx.cost = validated.cost;
+  if (validated.profit !== undefined) existingTx.profit = validated.profit;
+  if (validated.margin !== undefined) existingTx.margin = validated.margin;
+  if (validated.type !== undefined) existingTx.type = validated.type;
+  if (validated.date !== undefined) existingTx.date = new Date(validated.date);
+
+  await existingTx.save();
+
+  const accounts = await getAccountsInternal();
+
+  sendResponse(res, {
+    statusCode: 200,
+    data: {
+      transaction: formatTransaction(existingTx),
+      updatedAccounts: accounts,
+    },
+  });
+});
+
+export const deleteTransaction = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  const tx = await TransactionModel.findOne({
+    $or: [{ _id: id }, { clientTxId: id }],
+  }).lean();
+
+  if (!tx) {
+    throw new AppError('Transaction not found', 404);
+  }
+
+  await TransactionModel.deleteOne({ _id: tx._id });
+
+  let balanceRevert = 0;
+  let sendRevert = 0;
+  let receiveRevert = 0;
+  const profitRevert = tx.profit || tx.margin || 0;
+
+  const isOutflow =
+    tx.type === 'send_money' ||
+    tx.type === 'cash_out' ||
+    tx.type === 'b2b' ||
+    tx.type === 'sm' ||
+    tx.type === 'co' ||
+    tx.type === 'send';
+
+  const isInflow =
+    tx.type === 'receive_money' ||
+    tx.type === 'cash_in' ||
+    tx.type === 'recev';
+
+  if (isOutflow) {
+    balanceRevert = tx.amount + tx.cost;
+    sendRevert = -tx.amount;
+  } else if (isInflow) {
+    balanceRevert = -tx.amount;
+    receiveRevert = -tx.amount;
+  } else if (tx.type === 'adjustment') {
+    balanceRevert = -tx.amount;
+  }
+
+  await AccountModel.findByIdAndUpdate(tx.accountId, {
+    $inc: {
+      balance: balanceRevert,
+      todaySend: sendRevert,
+      todayReceive: receiveRevert,
+      todayProfit: -profitRevert,
+    },
+  });
+
+  const accounts = await getAccountsInternal();
+
+  sendResponse(res, {
+    statusCode: 200,
+    data: {
+      deletedId: id,
+      updatedAccounts: accounts,
+    },
+  });
 });
