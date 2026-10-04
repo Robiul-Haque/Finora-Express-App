@@ -8,10 +8,11 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { sendResponse } from '../utils/sendResponse.js';
 import { AppError } from '../utils/AppError.js';
 import { formatTransaction } from '../utils/formatters.js';
+import { calculateDeltas } from '../utils/transactionHelpers.js';
 
 export const getTransactions = catchAsync(async (req: Request, res: Response) => {
   const queryParams = getTransactionsQuerySchema.parse(req.query);
-  const { accountId, type, dateRange, sortBy, searchQuery, limit, offset } = queryParams;
+  const { accountId, type, dateRange, startDate, endDate, sortBy, searchQuery, limit, offset } = queryParams;
 
   const filter: any = {};
 
@@ -39,8 +40,18 @@ export const getTransactions = catchAsync(async (req: Request, res: Response) =>
     filter.date = { $gte: startOfMonth };
   }
 
+  if (startDate || endDate) {
+    filter.date = filter.date || {};
+    if (startDate) {
+      filter.date.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      filter.date.$lte = new Date(endDate);
+    }
+  }
+
   if (searchQuery && searchQuery.trim()) {
-    const escaped = searchQuery.trim().replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&');
+    const escaped = searchQuery.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'i');
     filter.$or = [
       { accountNumber: regex },
@@ -103,33 +114,11 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
   const id = clientTxId;
   const date = validated.date ? new Date(validated.date) : new Date();
 
-  let balanceDelta = 0;
-  let sendDelta = 0;
-  let receiveDelta = 0;
-  const profitDelta = validated.profit || validated.margin || 0;
+  const profitDelta = validated.profit !== undefined && validated.profit > 0
+    ? validated.profit
+    : (validated.margin !== undefined ? validated.margin : 0);
 
-  const isOutflow =
-    validated.type === 'send_money' ||
-    validated.type === 'cash_out' ||
-    validated.type === 'b2b' ||
-    validated.type === 'sm' ||
-    validated.type === 'co' ||
-    validated.type === 'send';
-
-  const isInflow =
-    validated.type === 'receive_money' ||
-    validated.type === 'cash_in' ||
-    validated.type === 'recev';
-
-  if (isOutflow) {
-    balanceDelta = -(validated.amount + validated.cost);
-    sendDelta = validated.amount;
-  } else if (isInflow) {
-    balanceDelta = validated.amount;
-    receiveDelta = validated.amount;
-  } else if (validated.type === 'adjustment') {
-    balanceDelta = validated.amount;
-  }
+  const deltas = calculateDeltas(validated.type, validated.amount, validated.cost, profitDelta);
 
   const newDoc = await TransactionModel.create({
     _id: id,
@@ -153,10 +142,10 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
 
   await AccountModel.findByIdAndUpdate(validated.accountId, {
     $inc: {
-      balance: balanceDelta,
-      todaySend: sendDelta,
-      todayReceive: receiveDelta,
-      todayProfit: profitDelta,
+      balance: deltas.balanceDelta,
+      todaySend: deltas.sendDelta,
+      todayReceive: deltas.receiveDelta,
+      todayProfit: deltas.profitDelta,
     },
   });
 
@@ -183,7 +172,22 @@ export const updateTransaction = catchAsync(async (req: Request, res: Response) 
     throw new AppError('Transaction not found', 404);
   }
 
-  // Update transaction fields
+  // 1. Calculate previous deltas
+  const oldProfit = typeof existingTx.profit === 'number'
+    ? existingTx.profit
+    : (typeof existingTx.margin === 'number' ? existingTx.margin : 0);
+  const oldDeltas = calculateDeltas(existingTx.type, existingTx.amount, existingTx.cost, oldProfit);
+
+  // 2. Compute updated values
+  const newType = validated.type || existingTx.type;
+  const newAmount = validated.amount !== undefined ? validated.amount : existingTx.amount;
+  const newCost = validated.cost !== undefined ? validated.cost : (existingTx.cost || 0);
+  const newProfit = validated.profit !== undefined
+    ? validated.profit
+    : (validated.margin !== undefined ? validated.margin : oldProfit);
+  const newDeltas = calculateDeltas(newType, newAmount, newCost, newProfit);
+
+  // 3. Update transaction document fields
   if (validated.note !== undefined) existingTx.note = validated.note || undefined;
   if (validated.counterparty !== undefined) existingTx.counterparty = validated.counterparty || undefined;
   if (validated.recipientNumber !== undefined) existingTx.recipientNumber = validated.recipientNumber || undefined;
@@ -196,6 +200,23 @@ export const updateTransaction = catchAsync(async (req: Request, res: Response) 
   if (validated.date !== undefined) existingTx.date = new Date(validated.date);
 
   await existingTx.save();
+
+  // 4. Atomically adjust account balance and metrics with difference
+  const balanceDiff = newDeltas.balanceDelta - oldDeltas.balanceDelta;
+  const sendDiff = newDeltas.sendDelta - oldDeltas.sendDelta;
+  const receiveDiff = newDeltas.receiveDelta - oldDeltas.receiveDelta;
+  const profitDiff = newDeltas.profitDelta - oldDeltas.profitDelta;
+
+  if (balanceDiff !== 0 || sendDiff !== 0 || receiveDiff !== 0 || profitDiff !== 0) {
+    await AccountModel.findByIdAndUpdate(existingTx.accountId, {
+      $inc: {
+        balance: balanceDiff,
+        todaySend: sendDiff,
+        todayReceive: receiveDiff,
+        todayProfit: profitDiff,
+      },
+    });
+  }
 
   const accounts = await getAccountsInternal();
 
@@ -221,40 +242,18 @@ export const deleteTransaction = catchAsync(async (req: Request, res: Response) 
 
   await TransactionModel.deleteOne({ _id: tx._id });
 
-  let balanceRevert = 0;
-  let sendRevert = 0;
-  let receiveRevert = 0;
-  const profitRevert = tx.profit || tx.margin || 0;
+  const profit = typeof tx.profit === 'number'
+    ? tx.profit
+    : (typeof tx.margin === 'number' ? tx.margin : 0);
+  const deltas = calculateDeltas(tx.type, tx.amount, tx.cost, profit);
 
-  const isOutflow =
-    tx.type === 'send_money' ||
-    tx.type === 'cash_out' ||
-    tx.type === 'b2b' ||
-    tx.type === 'sm' ||
-    tx.type === 'co' ||
-    tx.type === 'send';
-
-  const isInflow =
-    tx.type === 'receive_money' ||
-    tx.type === 'cash_in' ||
-    tx.type === 'recev';
-
-  if (isOutflow) {
-    balanceRevert = tx.amount + tx.cost;
-    sendRevert = -tx.amount;
-  } else if (isInflow) {
-    balanceRevert = -tx.amount;
-    receiveRevert = -tx.amount;
-  } else if (tx.type === 'adjustment') {
-    balanceRevert = -tx.amount;
-  }
-
+  // Reverse previous transaction effect on account
   await AccountModel.findByIdAndUpdate(tx.accountId, {
     $inc: {
-      balance: balanceRevert,
-      todaySend: sendRevert,
-      todayReceive: receiveRevert,
-      todayProfit: -profitRevert,
+      balance: -deltas.balanceDelta,
+      todaySend: -deltas.sendDelta,
+      todayReceive: -deltas.receiveDelta,
+      todayProfit: -deltas.profitDelta,
     },
   });
 

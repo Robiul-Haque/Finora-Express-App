@@ -1,3 +1,5 @@
+export type AccountCarrier = 'gp' | 'banglalink' | 'robi' | 'airtel' | 'teletalk' | 'mfs';
+
 export type AccountType = 'agent' | 'merchant' | 'personal' | 'corporate' | 'bkash';
 
 export type TransactionType =
@@ -10,7 +12,8 @@ export type TransactionType =
   | 'recev'
   | 'sm'
   | 'co'
-  | 'send';
+  | 'send'
+  | 'receive';
 
 export type SyncStatus = 'synced' | 'pending' | 'failed';
 
@@ -19,13 +22,22 @@ export interface Account {
   name: string;
   type: AccountType;
   accountNumber: string;
+  shortCode?: string;
+  carrier?: AccountCarrier;
   balance: number;
-  dailyLimit: number;
+  monthlyLimit: number;
+  monthlyLimitUsed: number;
+  remainingLimit: number;
+  dailyLimit?: number;
   todaySend: number;
   todayReceive: number;
   todayProfit: number;
+  totalMargin?: number;
   isActive: boolean;
   color?: string;
+  group?: 'primary' | 'secondary' | string;
+  isHighlighted?: boolean;
+  highlightColor?: string;
   createdAt: string;
   syncStatus?: SyncStatus;
 }
@@ -54,9 +66,13 @@ export interface Transaction {
 
 export interface LedgerMetrics {
   totalBalance: number;
+  totalMonthlyLimit: number;
+  totalMonthlyLimitUsed: number;
+  totalLimitRemaining: number;
   monthlyIncome: number;
   monthlyExpense: number;
   todayProfit: number;
   todaySendTotal: number;
   balanceGrowthPercentage: number;
+  activeAccountsCount: number;
 }

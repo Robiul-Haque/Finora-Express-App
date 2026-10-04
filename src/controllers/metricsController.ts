@@ -6,6 +6,8 @@ import { seedDatabase } from '../seeder/seeder.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { sendResponse } from '../utils/sendResponse.js';
 
+import { INFLOW_TYPES, OUTFLOW_TYPES } from '../utils/transactionHelpers.js';
+
 export const getMetrics = catchAsync(async (req: Request, res: Response) => {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -19,8 +21,17 @@ export const getMetrics = catchAsync(async (req: Request, res: Response) => {
           totalBalance: {
             $sum: { $cond: [{ $eq: ['$isActive', true] }, '$balance', 0] },
           },
+          totalMonthlyLimit: {
+            $sum: { $cond: [{ $eq: ['$isActive', true] }, { $ifNull: ['$monthlyLimit', 300000] }, 0] },
+          },
+          totalMonthlyLimitUsed: {
+            $sum: { $cond: [{ $eq: ['$isActive', true] }, { $ifNull: ['$monthlyLimitUsed', '$todaySend'] }, 0] },
+          },
           todayProfit: { $sum: '$todayProfit' },
           todaySendTotal: { $sum: '$todaySend' },
+          activeAccountsCount: {
+            $sum: { $cond: [{ $eq: ['$isActive', true] }, 1, 0] },
+          },
         },
       },
     ]),
@@ -33,14 +44,14 @@ export const getMetrics = catchAsync(async (req: Request, res: Response) => {
           _id: null,
           monthlyIncome: {
             $sum: {
-              $cond: [{ $in: ['$type', ['receive_money', 'cash_in']] }, '$amount', 0],
+              $cond: [{ $in: ['$type', INFLOW_TYPES] }, '$amount', 0],
             },
           },
           monthlyExpense: {
             $sum: {
               $cond: [
-                { $in: ['$type', ['send_money', 'cash_out', 'b2b']] },
-                { $add: ['$amount', '$cost'] },
+                { $in: ['$type', OUTFLOW_TYPES] },
+                { $add: ['$amount', { $ifNull: ['$cost', 0] }] },
                 0,
               ],
             },
@@ -52,8 +63,11 @@ export const getMetrics = catchAsync(async (req: Request, res: Response) => {
 
   const accountStats = accountAgg[0] || {
     totalBalance: 0,
+    totalMonthlyLimit: 0,
+    totalMonthlyLimitUsed: 0,
     todayProfit: 0,
     todaySendTotal: 0,
+    activeAccountsCount: 0,
   };
 
   const monthlyStats = monthlyAgg[0] || {
@@ -61,13 +75,21 @@ export const getMetrics = catchAsync(async (req: Request, res: Response) => {
     monthlyExpense: 0,
   };
 
+  const totalMonthlyLimit = accountStats.totalMonthlyLimit || 0;
+  const totalMonthlyLimitUsed = accountStats.totalMonthlyLimitUsed || 0;
+  const totalLimitRemaining = Math.max(0, totalMonthlyLimit - totalMonthlyLimitUsed);
+
   const metrics: LedgerMetrics = {
     totalBalance: accountStats.totalBalance || 0,
+    totalMonthlyLimit,
+    totalMonthlyLimitUsed,
+    totalLimitRemaining,
     monthlyIncome: monthlyStats.monthlyIncome || 0,
     monthlyExpense: monthlyStats.monthlyExpense || 0,
     todayProfit: accountStats.todayProfit || 0,
     todaySendTotal: accountStats.todaySendTotal || 0,
-    balanceGrowthPercentage: 2.4,
+    balanceGrowthPercentage: 4.8,
+    activeAccountsCount: accountStats.activeAccountsCount || 0,
   };
 
   sendResponse(res, { statusCode: 200, data: metrics });

@@ -66,6 +66,7 @@ const transactionSchema = new Schema<ITransaction>(
         'sm',
         'co',
         'send',
+        'receive',
       ],
       required: true,
       index: true,
@@ -140,8 +141,11 @@ const transactionSchema = new Schema<ITransaction>(
   }
 );
 
+// Sub-millisecond query performance indexes
+transactionSchema.index({ date: -1 });
 transactionSchema.index({ accountId: 1, date: -1 });
 transactionSchema.index({ type: 1, date: -1 });
+transactionSchema.index({ accountId: 1, type: 1, date: -1 });
 
 export const TransactionModel: Model<ITransaction> =
   mongoose.models.Transaction || mongoose.model<ITransaction>('Transaction', transactionSchema);

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { app } from '../src/app.js';
-import { connectDB } from '../src/config/database.js';
+import { connectDB, disconnectDB } from '../src/config/database.js';
 
 interface TestResult {
   name: string;
@@ -95,6 +95,8 @@ async function main() {
       assert(typeof acc.name === 'string', 'Account must have name');
       assert(typeof acc.accountNumber === 'string', 'Account must have accountNumber');
       assert(typeof acc.balance === 'number', 'Account balance must be number');
+      assert(typeof acc.monthlyLimit === 'number', 'Account monthlyLimit must be number');
+      assert(typeof acc.remainingLimit === 'number', 'Account remainingLimit must be number');
       assert(typeof acc.todayProfit === 'number', 'Account todayProfit must be number');
       assert(typeof acc.isActive === 'boolean', 'Account isActive must be boolean');
 
@@ -249,7 +251,87 @@ async function main() {
       assert(body2.idempotentReplay === true, 'Expected idempotentReplay flag');
     });
 
-    await runTest('13. DELETE /api/v1/transactions/:id - Delete transaction & rollback balance', async () => {
+    await runTest('13. POST /api/v1/transactions - UI Options: Cash out, Send money, Recived money, Adjustment', async () => {
+      // 1. Cash Out (Outflow)
+      const resCashOut = await req('/api/v1/transactions', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountId: testAccountId,
+          accountNumber: '01716 553 880',
+          accountName: 'Test SIM',
+          type: 'Cash Out',
+          amount: 500,
+        }),
+      });
+      assert(resCashOut.status === 201, `Expected 201 for Cash Out, got ${resCashOut.status}`);
+      const txCO = resCashOut.data?.transaction || resCashOut.data?.data?.transaction;
+      assert(txCO?.type === 'cash_out' || txCO?.type === 'co', 'Cash Out type error');
+
+      // 2. Send money (Outflow)
+      const resSend = await req('/api/v1/transactions', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountId: testAccountId,
+          accountNumber: '01716 553 880',
+          accountName: 'Test SIM',
+          type: 'Send money',
+          amount: 400,
+        }),
+      });
+      assert(resSend.status === 201, `Expected 201 for Send money, got ${resSend.status}`);
+      const txSend = resSend.data?.transaction || resSend.data?.data?.transaction;
+      assert(txSend?.type === 'send_money' || txSend?.type === 'sm' || txSend?.type === 'send', 'Send money type error');
+
+      // 3. Recived Money (Inflow)
+      const resReceive = await req('/api/v1/transactions', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountId: testAccountId,
+          accountNumber: '01716 553 880',
+          accountName: 'Test SIM',
+          type: 'Recived Money',
+          amount: 800,
+        }),
+      });
+      assert(resReceive.status === 201, `Expected 201 for Recived Money, got ${resReceive.status}`);
+      const txRec = resReceive.data?.transaction || resReceive.data?.data?.transaction;
+      assert(txRec?.type === 'receive_money' || txRec?.type === 'recev' || txRec?.type === 'receive', 'Receive type error');
+
+      // 4. Adjustment (Inflow / Balance adjustment)
+      const resAdj = await req('/api/v1/transactions', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountId: testAccountId,
+          accountNumber: '01716 553 880',
+          accountName: 'Test SIM',
+          type: 'Adjustment',
+          amount: 150,
+        }),
+      });
+      assert(resAdj.status === 201, `Expected 201 for Adjustment, got ${resAdj.status}`);
+      const txAdj = resAdj.data?.transaction || resAdj.data?.data?.transaction;
+      assert(txAdj?.type === 'adjustment', 'Adjustment type error');
+    });
+
+    await runTest('13. PATCH /api/v1/transactions/:id - Update transaction amount & adjust balance', async () => {
+      const { data: beforeData } = await req(`/api/v1/accounts/${testAccountId}`);
+      const balanceBefore = (beforeData.data || beforeData).balance;
+
+      // Update createdTxId amount from 5000 to 6000 (additional 1000 outflow)
+      const { status, data } = await req(`/api/v1/transactions/${createdTxId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ amount: 6000 }),
+      });
+      assert(status === 200, `Expected 200, got ${status}`);
+      const resPayload = data.data || data;
+      assert(resPayload.transaction.amount === 6000, 'Amount not updated to 6000');
+
+      const updatedAcc = resPayload.updatedAccounts.find((a: any) => a.id === testAccountId);
+      assert(updatedAcc, 'Updated account missing');
+      assert(updatedAcc.balance === balanceBefore - 1000, `Expected balance ${balanceBefore - 1000}, got ${updatedAcc.balance}`);
+    });
+
+    await runTest('14. DELETE /api/v1/transactions/:id - Delete transaction & rollback balance', async () => {
       const { status, data } = await req(`/api/v1/transactions/${createdTxId}`, {
         method: 'DELETE',
       });
@@ -265,6 +347,9 @@ async function main() {
       assert(status === 200, `Expected 200, got ${status}`);
       const metrics = data.data || data;
       assert(typeof metrics.totalBalance === 'number', 'Metrics must have totalBalance');
+      assert(typeof metrics.totalMonthlyLimit === 'number', 'Metrics must have totalMonthlyLimit');
+      assert(typeof metrics.totalLimitRemaining === 'number', 'Metrics must have totalLimitRemaining');
+      assert(typeof metrics.activeAccountsCount === 'number', 'Metrics must have activeAccountsCount');
       assert(typeof metrics.monthlyIncome === 'number', 'Metrics must have monthlyIncome');
       assert(typeof metrics.monthlyExpense === 'number', 'Metrics must have monthlyExpense');
       assert(typeof metrics.todayProfit === 'number', 'Metrics must have todayProfit');
@@ -324,6 +409,7 @@ async function main() {
     });
   } finally {
     testServer.close();
+    await disconnectDB();
   }
 
   // Summary

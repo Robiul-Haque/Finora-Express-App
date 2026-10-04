@@ -6,13 +6,22 @@ export interface IAccount {
   name: string;
   type: AccountType;
   accountNumber: string;
+  shortCode?: string;
+  carrier?: string;
   balance: number;
+  monthlyLimit: number;
+  monthlyLimitUsed: number;
+  remainingLimit: number;
   dailyLimit: number;
   todaySend: number;
   todayReceive: number;
   todayProfit: number;
+  totalMargin?: number;
   isActive: boolean;
   color?: string;
+  group?: string;
+  isHighlighted?: boolean;
+  highlightColor?: string;
   syncStatus?: SyncStatus;
   createdAt?: Date;
 }
@@ -42,10 +51,35 @@ const accountSchema = new Schema<IAccount>(
       unique: true,
       index: true,
     },
+    shortCode: {
+      type: String,
+      trim: true,
+      default: undefined,
+    },
+    carrier: {
+      type: String,
+      enum: ['gp', 'banglalink', 'robi', 'airtel', 'teletalk', 'mfs'],
+      default: undefined,
+    },
     balance: {
       type: Number,
       required: true,
       default: 0,
+    },
+    monthlyLimit: {
+      type: Number,
+      required: true,
+      default: 300000,
+    },
+    monthlyLimitUsed: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+    remainingLimit: {
+      type: Number,
+      required: true,
+      default: 300000,
     },
     dailyLimit: {
       type: Number,
@@ -67,6 +101,10 @@ const accountSchema = new Schema<IAccount>(
       required: true,
       default: 0,
     },
+    totalMargin: {
+      type: Number,
+      default: 0,
+    },
     isActive: {
       type: Boolean,
       required: true,
@@ -74,6 +112,18 @@ const accountSchema = new Schema<IAccount>(
       index: true,
     },
     color: {
+      type: String,
+      default: undefined,
+    },
+    group: {
+      type: String,
+      default: undefined,
+    },
+    isHighlighted: {
+      type: Boolean,
+      default: false,
+    },
+    highlightColor: {
       type: String,
       default: undefined,
     },

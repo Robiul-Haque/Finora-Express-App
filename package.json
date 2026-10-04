@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Production-grade, high-performance Ledger Backend for Finora bKash Expo App",
   "main": "dist/index.js",
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
