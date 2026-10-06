@@ -140,12 +140,18 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
     syncStatus: 'synced',
   });
 
+  const isSend = validated.type === 'sm' || validated.type === 'send_money' || validated.type === 'send';
+  const monthlyUsedDelta = isSend ? validated.amount : 0;
+
   await AccountModel.findByIdAndUpdate(validated.accountId, {
     $inc: {
       balance: deltas.balanceDelta,
       todaySend: deltas.sendDelta,
       todayReceive: deltas.receiveDelta,
       todayProfit: deltas.profitDelta,
+      totalMargin: deltas.profitDelta,
+      monthlyLimitUsed: monthlyUsedDelta,
+      remainingLimit: -monthlyUsedDelta,
     },
   });
 
@@ -207,13 +213,22 @@ export const updateTransaction = catchAsync(async (req: Request, res: Response) 
   const receiveDiff = newDeltas.receiveDelta - oldDeltas.receiveDelta;
   const profitDiff = newDeltas.profitDelta - oldDeltas.profitDelta;
 
-  if (balanceDiff !== 0 || sendDiff !== 0 || receiveDiff !== 0 || profitDiff !== 0) {
+  const oldIsSend = existingTx.type === 'sm' || existingTx.type === 'send_money' || existingTx.type === 'send';
+  const newIsSend = newType === 'sm' || newType === 'send_money' || newType === 'send';
+  const oldUsed = oldIsSend ? existingTx.amount : 0;
+  const newUsed = newIsSend ? newAmount : 0;
+  const usedDiff = newUsed - oldUsed;
+
+  if (balanceDiff !== 0 || sendDiff !== 0 || receiveDiff !== 0 || profitDiff !== 0 || usedDiff !== 0) {
     await AccountModel.findByIdAndUpdate(existingTx.accountId, {
       $inc: {
         balance: balanceDiff,
         todaySend: sendDiff,
         todayReceive: receiveDiff,
         todayProfit: profitDiff,
+        totalMargin: profitDiff,
+        monthlyLimitUsed: usedDiff,
+        remainingLimit: -usedDiff,
       },
     });
   }
@@ -248,12 +263,18 @@ export const deleteTransaction = catchAsync(async (req: Request, res: Response) 
   const deltas = calculateDeltas(tx.type, tx.amount, tx.cost, profit);
 
   // Reverse previous transaction effect on account
+  const isSendDel = tx.type === 'sm' || tx.type === 'send_money' || tx.type === 'send';
+  const usedDeltaDel = isSendDel ? tx.amount : 0;
+
   await AccountModel.findByIdAndUpdate(tx.accountId, {
     $inc: {
       balance: -deltas.balanceDelta,
       todaySend: -deltas.sendDelta,
       todayReceive: -deltas.receiveDelta,
       todayProfit: -deltas.profitDelta,
+      totalMargin: -deltas.profitDelta,
+      monthlyLimitUsed: -usedDeltaDel,
+      remainingLimit: usedDeltaDel,
     },
   });
 

@@ -46,7 +46,22 @@ export const updateAccountSchema = z.object({
   highlightColor: z.string().optional().nullable(),
 });
 
-const allowedTxTypes = [
+// Cash Out feature commented out for new transactions
+const allowedCreateTxTypes = [
+  // 'cash_out',
+  'cash_in',
+  'send_money',
+  'receive_money',
+  'b2b',
+  'adjustment',
+  'recev',
+  'sm',
+  // 'co',
+  'send',
+  'receive',
+] as const;
+
+const allTxTypes = [
   'cash_out',
   'cash_in',
   'send_money',
@@ -67,8 +82,8 @@ export const createTransactionSchema = z.object({
   accountName: z.string().min(1, 'Account name is required'),
   type: z.preprocess(
     (val) => (typeof val === 'string' ? normalizeTransactionType(val) : val),
-    z.enum(allowedTxTypes, {
-      errorMap: () => ({ message: 'Invalid transaction type. Allowed: Cash Out, Send Money, Receive Money, Adjustment' }),
+    z.enum(allowedCreateTxTypes, {
+      errorMap: () => ({ message: 'Invalid transaction type. Allowed: Send Money, Receive Money, Adjustment' }),
     })
   ),
   amount: z.number().positive('Amount is required and must be greater than 0'),
@@ -89,7 +104,7 @@ export const updateTransactionSchema = z.object({
   accountName: z.string().optional(),
   type: z.preprocess(
     (val) => (typeof val === 'string' ? normalizeTransactionType(val) : val),
-    z.enum(allowedTxTypes).optional()
+    z.enum(allTxTypes).optional()
   ),
   amount: z.number().positive().optional(),
   margin: z.number().optional(),

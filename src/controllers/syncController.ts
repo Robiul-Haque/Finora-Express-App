@@ -46,12 +46,18 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
 
         const deltas = calculateDeltas(txData.type, txData.amount, txData.cost, profitDelta);
 
+        const isSendSync = txData.type === 'sm' || txData.type === 'send_money' || txData.type === 'send';
+        const usedDeltaSync = isSendSync ? txData.amount : 0;
+
         await AccountModel.findByIdAndUpdate(txData.accountId, {
           $inc: {
             balance: deltas.balanceDelta,
             todaySend: deltas.sendDelta,
             todayReceive: deltas.receiveDelta,
             todayProfit: deltas.profitDelta,
+            totalMargin: deltas.profitDelta,
+            monthlyLimitUsed: usedDeltaSync,
+            remainingLimit: -usedDeltaSync,
           },
         });
 
@@ -116,13 +122,22 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
           const receiveDiff = newDeltas.receiveDelta - oldDeltas.receiveDelta;
           const profitDiff = newDeltas.profitDelta - oldDeltas.profitDelta;
 
-          if (balanceDiff !== 0 || sendDiff !== 0 || receiveDiff !== 0 || profitDiff !== 0) {
+          const oldIsSendSync = existing.type === 'sm' || existing.type === 'send_money' || existing.type === 'send';
+          const newIsSendSync = newType === 'sm' || newType === 'send_money' || newType === 'send';
+          const oldUsedSync = oldIsSendSync ? existing.amount : 0;
+          const newUsedSync = newIsSendSync ? newAmount : 0;
+          const usedDiffSync = newUsedSync - oldUsedSync;
+
+          if (balanceDiff !== 0 || sendDiff !== 0 || receiveDiff !== 0 || profitDiff !== 0 || usedDiffSync !== 0) {
             await AccountModel.findByIdAndUpdate(existing.accountId, {
               $inc: {
                 balance: balanceDiff,
                 todaySend: sendDiff,
                 todayReceive: receiveDiff,
                 todayProfit: profitDiff,
+                totalMargin: profitDiff,
+                monthlyLimitUsed: usedDiffSync,
+                remainingLimit: -usedDiffSync,
               },
             });
           }
@@ -141,12 +156,18 @@ export const processBatchSync = catchAsync(async (req: Request, res: Response) =
             : (typeof tx.margin === 'number' ? tx.margin : 0);
           const deltas = calculateDeltas(tx.type, tx.amount, tx.cost, profit);
 
+          const isSendDelSync = tx.type === 'sm' || tx.type === 'send_money' || tx.type === 'send';
+          const usedDelSync = isSendDelSync ? tx.amount : 0;
+
           await AccountModel.findByIdAndUpdate(tx.accountId, {
             $inc: {
               balance: -deltas.balanceDelta,
               todaySend: -deltas.sendDelta,
               todayReceive: -deltas.receiveDelta,
               todayProfit: -deltas.profitDelta,
+              totalMargin: -deltas.profitDelta,
+              monthlyLimitUsed: -usedDelSync,
+              remainingLimit: usedDelSync,
             },
           });
 
