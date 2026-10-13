@@ -117,7 +117,7 @@ async function main() {
         type: 'agent',
         accountNumber: testAccountNumber,
         balance: 50000,
-        dailyLimit: 300000,
+        dailyLimit: 50000,
         isActive: true,
         color: '#E2136E',
       };

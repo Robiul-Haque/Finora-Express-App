@@ -8,9 +8,95 @@ import { sendResponse } from '../utils/sendResponse.js';
 import { AppError } from '../utils/AppError.js';
 import { formatAccount } from '../utils/formatters.js';
 
+export const getAccountsInternal = async (): Promise<Account[]> => {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
+
+  const [docs, txStats] = await Promise.all([
+    AccountModel.find().sort({ createdAt: -1 }).lean(),
+    TransactionModel.aggregate([
+      { $match: { date: { $gte: startOfMonth } } },
+      {
+        $group: {
+          _id: '$accountId',
+          todaySend: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $gte: ['$date', startOfToday] },
+                    { $in: ['$type', ['sm', 'send_money', 'send', 'co', 'cash_out', 'b2b']] }
+                  ]
+                },
+                '$amount',
+                0
+              ]
+            }
+          },
+          todayReceive: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $gte: ['$date', startOfToday] },
+                    { $in: ['$type', ['recev', 'receive_money', 'receive', 'cash_in']] }
+                  ]
+                },
+                '$amount',
+                0
+              ]
+            }
+          },
+          todayProfit: {
+            $sum: {
+              $cond: [
+                { $gte: ['$date', startOfToday] },
+                { $ifNull: ['$profit', '$margin'] },
+                0
+              ]
+            }
+          },
+          monthlyLimitUsed: {
+            $sum: {
+              $cond: [
+                { $in: ['$type', ['sm', 'send_money', 'send']] },
+                '$amount',
+                0
+              ]
+            }
+          }
+        }
+      }
+    ])
+  ]);
+
+  const statsMap = new Map<string, any>(txStats.map((s) => [String(s._id), s]));
+
+  return docs.map((doc) => {
+    const stats = statsMap.get(String(doc._id));
+    const mLimit = typeof doc.monthlyLimit === 'number' ? Math.min(doc.monthlyLimit, 300000) : 300000;
+    const mUsed = stats ? stats.monthlyLimitUsed : (typeof doc.monthlyLimitUsed === 'number' ? doc.monthlyLimitUsed : 0);
+    const tSend = stats ? stats.todaySend : (typeof doc.todaySend === 'number' ? doc.todaySend : 0);
+    const tReceive = stats ? stats.todayReceive : (typeof doc.todayReceive === 'number' ? doc.todayReceive : 0);
+    const tProfit = stats ? stats.todayProfit : (typeof doc.todayProfit === 'number' ? doc.todayProfit : 0);
+
+    return formatAccount({
+      ...doc,
+      monthlyLimit: mLimit,
+      monthlyLimitUsed: mUsed,
+      remainingLimit: Math.max(0, mLimit - mUsed),
+      dailyLimit: typeof doc.dailyLimit === 'number' ? Math.min(doc.dailyLimit, 50000) : 50000,
+      todaySend: tSend,
+      todayReceive: tReceive,
+      todayProfit: tProfit,
+    });
+  });
+};
+
 export const getAccounts = catchAsync(async (req: Request, res: Response) => {
-  const docs = await AccountModel.find().sort({ createdAt: -1 }).lean();
-  const accounts = docs.map(formatAccount);
+  const accounts = await getAccountsInternal();
   sendResponse(res, { statusCode: 200, data: accounts });
 });
 
@@ -34,9 +120,7 @@ export const createAccount = catchAsync(async (req: Request, res: Response) => {
   }
 
   const id = `acc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-  const monthlyLimit = typeof validated.monthlyLimit === 'number'
-    ? validated.monthlyLimit
-    : (typeof validated.dailyLimit === 'number' ? validated.dailyLimit : 300000);
+  const monthlyLimit = typeof validated.monthlyLimit === 'number' ? Math.min(validated.monthlyLimit, 300000) : 300000;
   const monthlyLimitUsed = typeof validated.monthlyLimitUsed === 'number' ? validated.monthlyLimitUsed : 0;
   const remainingLimit = typeof validated.remainingLimit === 'number'
     ? validated.remainingLimit
@@ -53,7 +137,7 @@ export const createAccount = catchAsync(async (req: Request, res: Response) => {
     monthlyLimit,
     monthlyLimitUsed,
     remainingLimit,
-    dailyLimit: typeof validated.dailyLimit === 'number' ? validated.dailyLimit : 300000,
+    dailyLimit: typeof validated.dailyLimit === 'number' ? Math.min(validated.dailyLimit, 50000) : 50000,
     todaySend: 0,
     todayReceive: 0,
     todayProfit: 0,
@@ -81,10 +165,10 @@ export const updateAccount = catchAsync(async (req: Request, res: Response) => {
   if (validated.shortCode !== undefined) updateData.shortCode = validated.shortCode || undefined;
   if (validated.carrier !== undefined) updateData.carrier = validated.carrier || undefined;
   if (validated.balance !== undefined) updateData.balance = validated.balance;
-  if (validated.monthlyLimit !== undefined) updateData.monthlyLimit = validated.monthlyLimit;
+  if (validated.monthlyLimit !== undefined) updateData.monthlyLimit = Math.min(validated.monthlyLimit, 300000);
   if (validated.monthlyLimitUsed !== undefined) updateData.monthlyLimitUsed = validated.monthlyLimitUsed;
   if (validated.remainingLimit !== undefined) updateData.remainingLimit = validated.remainingLimit;
-  if (validated.dailyLimit !== undefined) updateData.dailyLimit = validated.dailyLimit;
+  if (validated.dailyLimit !== undefined) updateData.dailyLimit = Math.min(validated.dailyLimit, 50000);
   if (validated.todaySend !== undefined) updateData.todaySend = validated.todaySend;
   if (validated.todayReceive !== undefined) updateData.todayReceive = validated.todayReceive;
   if (validated.todayProfit !== undefined) updateData.todayProfit = validated.todayProfit;
@@ -115,9 +199,7 @@ export const updateAccount = catchAsync(async (req: Request, res: Response) => {
     throw new AppError('Account not found', 404);
   }
 
-  const allDocs = await AccountModel.find().sort({ createdAt: -1 }).lean();
-  const accounts = allDocs.map(formatAccount);
-
+  const accounts = await getAccountsInternal();
   sendResponse(res, { statusCode: 200, data: accounts });
 });
 
@@ -134,8 +216,3 @@ export const deleteAccount = catchAsync(async (req: Request, res: Response) => {
 
   sendResponse(res, { statusCode: 200, data: { success: true, deletedId: id } });
 });
-
-export const getAccountsInternal = async (): Promise<Account[]> => {
-  const docs = await AccountModel.find().sort({ createdAt: -1 }).lean();
-  return docs.map(formatAccount);
-};

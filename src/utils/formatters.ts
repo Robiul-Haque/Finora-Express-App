@@ -1,9 +1,7 @@
 import { Account, Transaction } from '../types/index.js';
 
 export const formatAccount = (doc: any): Account => {
-  const monthlyLimit = typeof doc.monthlyLimit === 'number'
-    ? doc.monthlyLimit
-    : (typeof doc.dailyLimit === 'number' ? doc.dailyLimit : 300000);
+  const monthlyLimit = typeof doc.monthlyLimit === 'number' ? Math.min(doc.monthlyLimit, 300000) : 300000;
   const monthlyLimitUsed = typeof doc.monthlyLimitUsed === 'number'
     ? doc.monthlyLimitUsed
     : (typeof doc.todaySend === 'number' ? doc.todaySend : 0);
@@ -24,7 +22,7 @@ export const formatAccount = (doc: any): Account => {
     monthlyLimit,
     monthlyLimitUsed,
     remainingLimit,
-    dailyLimit: typeof doc.dailyLimit === 'number' ? doc.dailyLimit : 300000,
+    dailyLimit: typeof doc.dailyLimit === 'number' ? Math.min(doc.dailyLimit, 50000) : 50000,
     todaySend: typeof doc.todaySend === 'number' ? doc.todaySend : 0,
     todayReceive: typeof doc.todayReceive === 'number' ? doc.todayReceive : 0,
     todayProfit,

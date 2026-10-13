@@ -8,7 +8,7 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { sendResponse } from '../utils/sendResponse.js';
 import { AppError } from '../utils/AppError.js';
 import { formatTransaction } from '../utils/formatters.js';
-import { calculateDeltas } from '../utils/transactionHelpers.js';
+import { isSameDay, isSameMonth, calculateDeltas } from '../utils/transactionHelpers.js';
 
 export const getTransactions = catchAsync(async (req: Request, res: Response) => {
   const queryParams = getTransactionsQuerySchema.parse(req.query);
@@ -111,8 +111,37 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
     throw new AppError('Selected account not found', 404);
   }
 
-  const id = clientTxId;
   const date = validated.date ? new Date(validated.date) : new Date();
+  const isTxToday = isSameDay(date);
+  const isTxThisMonth = isSameMonth(date);
+
+  // bKash limit checks for Outflows / Send Money
+  const isSendTx = validated.type === 'sm' || validated.type === 'send_money' || validated.type === 'send';
+  if (isSendTx) {
+    const accDailyLimit = typeof targetAccount.dailyLimit === 'number' ? targetAccount.dailyLimit : 50000;
+    if (isTxToday) {
+      const currentTodaySend = typeof targetAccount.todaySend === 'number' ? targetAccount.todaySend : 0;
+      const remainingDaily = Math.max(0, accDailyLimit - currentTodaySend);
+      if (validated.amount > remainingDaily) {
+        throw new AppError(`Amount exceeds daily send limit. Remaining daily limit: ৳${remainingDaily.toLocaleString('en-US')}. Daily limit max is ৳${accDailyLimit.toLocaleString('en-US')}.`, 400);
+      }
+    } else if (validated.amount > accDailyLimit) {
+      throw new AppError(`Amount exceeds maximum daily send limit of ৳${accDailyLimit.toLocaleString('en-US')}.`, 400);
+    }
+
+    const accMonthlyLimit = typeof targetAccount.monthlyLimit === 'number' ? targetAccount.monthlyLimit : 300000;
+    if (isTxThisMonth) {
+      const currentMonthlyUsed = typeof targetAccount.monthlyLimitUsed === 'number' ? targetAccount.monthlyLimitUsed : 0;
+      const remainingMonthly = Math.max(0, accMonthlyLimit - currentMonthlyUsed);
+      if (validated.amount > remainingMonthly) {
+        throw new AppError(`Amount exceeds monthly send limit. Remaining monthly limit: ৳${remainingMonthly.toLocaleString('en-US')}. Monthly limit max is ৳${accMonthlyLimit.toLocaleString('en-US')}.`, 400);
+      }
+    } else if (validated.amount > accMonthlyLimit) {
+      throw new AppError(`Amount exceeds maximum monthly limit of ৳${accMonthlyLimit.toLocaleString('en-US')}.`, 400);
+    }
+  }
+
+  const id = clientTxId;
 
   const profitDelta = validated.profit !== undefined && validated.profit > 0
     ? validated.profit
@@ -141,14 +170,14 @@ export const createTransaction = catchAsync(async (req: Request, res: Response) 
   });
 
   const isSend = validated.type === 'sm' || validated.type === 'send_money' || validated.type === 'send';
-  const monthlyUsedDelta = isSend ? validated.amount : 0;
+  const monthlyUsedDelta = (isSend && isTxThisMonth) ? validated.amount : 0;
 
   await AccountModel.findByIdAndUpdate(validated.accountId, {
     $inc: {
       balance: deltas.balanceDelta,
-      todaySend: deltas.sendDelta,
-      todayReceive: deltas.receiveDelta,
-      todayProfit: deltas.profitDelta,
+      todaySend: isTxToday ? deltas.sendDelta : 0,
+      todayReceive: isTxToday ? deltas.receiveDelta : 0,
+      todayProfit: isTxToday ? deltas.profitDelta : 0,
       totalMargin: deltas.profitDelta,
       monthlyLimitUsed: monthlyUsedDelta,
       remainingLimit: -monthlyUsedDelta,

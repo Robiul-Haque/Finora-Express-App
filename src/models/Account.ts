@@ -84,7 +84,7 @@ const accountSchema = new Schema<IAccount>(
     dailyLimit: {
       type: Number,
       required: true,
-      default: 300000,
+      default: 50000,
     },
     todaySend: {
       type: Number,
